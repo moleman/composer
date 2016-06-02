@@ -107,6 +107,7 @@ class Installer
     protected $classMapAuthoritative = false;
     protected $devMode = false;
     protected $dryRun = false;
+    protected $dumpLock = false;
     protected $verbose = false;
     protected $update = false;
     protected $dumpAutoloader = true;
@@ -183,6 +184,18 @@ class Installer
             $this->runScripts = false;
             $this->installationManager->addInstaller(new NoopInstaller);
             $this->mockLocalRepositories($this->repositoryManager);
+        }
+
+        if ($this->update && $this->dumpLock) {
+            $this->verbose = true;
+            $this->runScripts = false;
+            $this->installationManager->addInstaller(new NoopInstaller);
+
+            if (!$this->repositoryManager->getLocalRepository()->getPackages()) {
+                $this->mockInstalledRepositories($this->repositoryManager);
+            } else {
+                $this->mockLocalRepositories($this->repositoryManager);
+            }
         }
 
         if ($this->runScripts) {
@@ -1329,6 +1342,30 @@ class Installer
     }
 
     /**
+     * Replace local repositories with InstalledArrayRepository instances of locked packages
+     *
+     * This is to treat packages in composer.lock as installed instead of vendor/composer/installed.json
+     *
+     * @param RepositoryManager $rm
+     */
+    private function mockInstalledRepositories(RepositoryManager $rm)
+    {
+        $packages = array();
+        foreach ($this->locker->getLockedRepository(True)->getPackages() as $package) {
+            $packages[(string)$package] = clone $package;
+        }
+        foreach ($packages as $key => $package) {
+            if ($package instanceof AliasPackage) {
+                $alias = (string)$package->getAliasOf();
+                $packages[$key] = new AliasPackage($packages[$alias], $package->getVersion(), $package->getPrettyVersion());
+            }
+        }
+        $rm->setLocalRepository(
+            new InstalledArrayRepository($packages)
+        );
+    }
+
+    /**
      * Create Installer
      *
      * @param  IOInterface $io
@@ -1370,6 +1407,19 @@ class Installer
     public function setDryRun($dryRun = true)
     {
         $this->dryRun = (boolean) $dryRun;
+
+        return $this;
+    }
+
+    /**
+     * Whether to run in dump-lockmode or not
+     *
+     * @param  bool      $dumpLock
+     * @return Installer
+     */
+    public function setDumpLock($dumpLock = true)
+    {
+        $this->dumpLock = (boolean) $dumpLock;
 
         return $this;
     }
